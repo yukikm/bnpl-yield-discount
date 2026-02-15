@@ -1,0 +1,25 @@
+{
+  "name": "keeper",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts start",
+    "cli": "tsx src/index.ts",
+    "start": "tsx src/index.ts start",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"(keeper) lint configured at repo root\""
+  },
+  "dependencies": {
+    "@bnpl/shared": "workspace:*",
+    "commander": "^14.0.1",
+    "tempo.ts": "0.14.0",
+    "viem": "^2.45.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.33",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

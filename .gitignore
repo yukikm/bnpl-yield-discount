@@ -1,0 +1,31 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / local data
+.env
+.env.local
+.env.*.local
+.data/
+prisma/.data/
+
+# Next.js
+.next/
+out/
+
+# Build outputs
+dist/
+coverage/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Foundry
+contracts/out/
+contracts/cache/

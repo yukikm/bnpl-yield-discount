@@ -1,0 +1,34 @@
+{
+  "name": "bnpl-yield-discount",
+  "private": true,
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "concurrently -n protocol,merchant,keeper -c blue,green,magenta \"pnpm --filter protocol-web dev\" \"pnpm --filter merchant-demo dev\" \"pnpm --filter keeper dev\"",
+    "build": "pnpm -r --parallel build",
+    "lint": "pnpm -r --parallel lint",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "format": "prettier -w .",
+    "db:migrate:dev": "prisma migrate dev --name init --schema prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "db:seed": "prisma db seed --schema prisma/schema.prisma",
+    "sync:abis": "tsx scripts/sync-abis.ts",
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.6.2",
+    "prisma": "6.19.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

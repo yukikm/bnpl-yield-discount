@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Merchant {
+  id          String           @id @default(uuid())
+  name        String
+  walletAddress String
+  apiKeyHash  String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  invoices        Invoice[]
+  idempotencyKeys IdempotencyKey[]
+}
+
+model Invoice {
+  id                   String   @id @default(uuid())
+  merchantId            String
+  merchant              Merchant @relation(fields: [merchantId], references: [id])
+
+  correlationId         String   @unique
+  priceBaseUnits        String
+  dueTimestamp          BigInt
+  description           String?
+
+  signature             String
+  merchantFeeBaseUnits  String
+  merchantPayoutBaseUnits String
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  idempotencyKeys IdempotencyKey[]
+}
+
+model IdempotencyKey {
+  id         String   @id @default(uuid())
+  merchantId String
+  merchant   Merchant @relation(fields: [merchantId], references: [id])
+
+  key        String
+  requestHash String
+
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+
+  createdAt  DateTime @default(now())
+
+  @@unique([merchantId, key])
+}
+

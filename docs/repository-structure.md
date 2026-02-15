@@ -74,10 +74,9 @@ bnpl-yield-discount/
 - Operator Dashboard
 - Merchant API / Public API（請求作成/署名/照合/ステータス取得）
 
-**配置の基本方針（レイヤード）**:
+**配置の基本方針（MVP）**:
 - UIレイヤー: `apps/protocol-web/src/app/`, `apps/protocol-web/src/components/`
-- Serviceレイヤー: `apps/protocol-web/src/server/services/`（請求作成、署名、照合、計算）
-- Dataレイヤー: `apps/protocol-web/src/server/repositories/`（Prisma）、`apps/protocol-web/src/server/chain/`（viem/tempo）
+- Server（API/DB/chain）: `apps/protocol-web/src/server/*`（Prisma、認証、env、viemコール等）
 
 **配置ファイル（例）**:
 ```text
@@ -89,9 +88,12 @@ apps/protocol-web/
 │   │   └── api/                   # Route Handlers（Merchant/Public API）
 │   ├── components/                # UIコンポーネント
 │   ├── server/
-│   │   ├── services/              # ビジネスロジック
-│   │   ├── repositories/          # Prisma/DBアクセス
-│   │   └── chain/                 # viem/tempo client + contract calls
+│   │   ├── api-error.ts
+│   │   ├── auth.ts
+│   │   ├── chain.ts               # viem client + contract calls
+│   │   ├── crypto.ts
+│   │   ├── db.ts                  # Prisma client
+│   │   └── env.ts
 │   └── lib/                       # 共有ユーティリティ（UIから参照可）
 └── public/
 ```
@@ -201,7 +203,7 @@ prisma/
 ```
 
 **運用方針（MVP）**:
-- Prismaのmigration/seedは原則「repo root」で実行する（`DATABASE_URL=file:./.data/app.db` が相対パス依存のため）
+- PrismaはSQLite `file:` パスを `prisma/schema.prisma` からの相対で解決するため、repo root の `.data/app.db` を使う場合は `DATABASE_URL=file:../.data/app.db` を使用する
 - `apps/protocol-web` と `apps/keeper` はDB参照が必要になるため `@prisma/client` を依存に持つ
 
 ### scripts/（開発用スクリプト）
@@ -235,7 +237,7 @@ ops/
 **役割**: SQLite DBなど実行時データを置く（git管理しない）。
 
 **ルール**:
-- `DATABASE_URL="file:./.data/app.db"` を前提にする
+- `DATABASE_URL="file:../.data/app.db"` を前提にする（Prismaの相対解決に注意）
 - `.data/` は `.gitignore` に入れる
 
 ## ファイル配置規則（要約）
@@ -245,10 +247,9 @@ ops/
 | Merchant/Public API | `apps/protocol-web/src/app/api/` | `apps/protocol-web/src/app/api/merchant/invoices/route.ts` |
 | UI（画面） | `apps/protocol-web/src/app/` | `apps/protocol-web/src/app/checkout/[correlationId]/page.tsx` |
 | UI（部品） | `apps/protocol-web/src/components/` | `apps/protocol-web/src/components/LoanStatusCard.tsx` |
-| サービス（業務ロジック） | `apps/protocol-web/src/server/services/` | `apps/protocol-web/src/server/services/InvoiceService.ts` |
-| DBアクセス | `apps/protocol-web/src/server/repositories/` | `apps/protocol-web/src/server/repositories/InvoiceRepository.ts` |
+| Server実装（API/DB/chain） | `apps/protocol-web/src/server/` | `apps/protocol-web/src/server/db.ts` |
 | MerchantデモUI | `apps/merchant-demo/src/app/` | `apps/merchant-demo/src/app/page.tsx` |
-| Keeperジョブ | `apps/keeper/src/jobs/` | `apps/keeper/src/jobs/delegateAndStart.ts` |
+| Keeper | `apps/keeper/src/` | `apps/keeper/src/index.ts` |
 | コントラクト | `contracts/src/` | `contracts/src/LoanManager.sol` |
 | コントラクトテスト | `contracts/test/` | `contracts/test/LoanManager.t.sol` |
 | Prisma | `prisma/` | `prisma/schema.prisma` |
@@ -263,7 +264,7 @@ ops/
 
 - `apps/*` は `packages/*` に依存してよい
 - `packages/*` は `apps/*` に依存しない
-- UIは `server/services` を呼び、DBやchain clientへ直アクセスしない（レイヤー分離）
+- Client Components は `apps/protocol-web/src/server/*` を直接 import しない（server-only）。必要な処理は Route Handler / Server Component 経由に寄せる
 
 ## pnpmモノレポ運用（MVP）
 
@@ -274,6 +275,6 @@ ops/
 
 ## スケーリング戦略
 
-- 追加機能は原則 `apps/protocol-web/src/server/services/<feature>/` のように機能単位のサブディレクトリを切る
+- 追加機能が増えたら `apps/protocol-web/src/server/<feature>/` や `apps/protocol-web/src/server/services/<feature>/` のように機能単位で分割する（MVPは `src/server/*` フラットでもOK）
 - Keeperの戦略が増える場合は `apps/keeper/src/strategies/` を増設して切り替え可能にする
 - 本番移行時は `sqlite -> postgres` 等へ置換しても `prisma/` を中心に変更を閉じ込める

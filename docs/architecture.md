@@ -31,12 +31,11 @@
 
 | 技術 | バージョン | 用途 | 選定理由 |
 | --- | --- | --- | --- |
-| Next.js | 15.x 以上 | Web（Protocol UI/API + Merchantデモ） | UI/サーバー処理を同一スタックで揃え、E2Eを最短で作るため |
+| Next.js | 16.x 以上 | Web（Protocol UI/API + Merchantデモ） | UI/サーバー処理を同一スタックで揃え、E2Eを最短で作るため |
 | React | 19.x 以上 | UI | Privy/Wallet連携とUI構築のため |
 | Tailwind CSS | 3.x 以上 | UI | 画面作成速度を優先 |
 | Privy | latest | 認証/Embedded Wallet | Web3非専門ユーザーのオンボーディング最短化 |
-| viem | 2.x 以上 | EVM RPC | 型安全なTx組み立て、Tempo chainと相性が良い |
-| tempo.ts | latest | Tempo Actions/TIP-20/DEX | `placeFlipSync` 等のTempoネイティブ機能を扱うため |
+| viem | 2.x 以上 | EVM RPC + Tempo Actions | 型安全なTx組み立てと、`viem/tempo` 経由のTempoネイティブActions（DEX等）のため |
 | Prisma | latest | DBアクセス/マイグレーション | SQLiteの永続化、migration/seed、簡易ロック実装を最短で行うため |
 
 ### 開発ツール
@@ -85,8 +84,9 @@
 ## データ永続化戦略（SQLite + Prisma）
 
 - DBファイルはEC2の永続ディスク上に置く
-  - `DATABASE_URL="file:./.data/app.db"`
+  - `DATABASE_URL="file:../.data/app.db"`
   - `.data/` を作ってそこに格納（git管理しない）
+  - NOTE: PrismaはSQLite `file:` パスを `prisma/schema.prisma` からの相対で解決するため、repo root に置くには `../` が必要
 
 ### Migration/Seed
 
@@ -104,7 +104,7 @@
 | --- | --- | --- | --- | --- |
 | `TEMPO_RPC_URL` | Yes | Web(Server)/Keeper | `https://rpc.moderato.tempo.xyz` | Tempo RPC |
 | `TEMPO_CHAIN_ID` | Yes | Web(Server)/Keeper | `42431` | EIP-712/クライアント設定 |
-| `DATABASE_URL` | Yes | Protocol Web(Server)/Merchant Demo(Server)/Keeper | `file:./.data/app.db` | Prisma/SQLite |
+| `DATABASE_URL` | Yes | Protocol Web(Server)/Merchant Demo(Server)/Keeper | `file:../.data/app.db` | Prisma/SQLite |
 | `NEXT_PUBLIC_APP_URL` | Yes | Protocol Web(Client) | `https://<domain>` | Checkout URL生成等 |
 | `PROTOCOL_API_BASE_URL` | Yes | Merchant Demo(Server) | `https://<protocol-domain>` | Merchant DemoがProtocolのMerchant APIを叩くため |
 | `NEXT_PUBLIC_PRIVY_APP_ID` | Yes | Web(Client) | `xxxxx` | Privy |

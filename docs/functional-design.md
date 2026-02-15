@@ -68,11 +68,11 @@ graph TB
 | --- | --- | --- |
 | フロントエンド | Next.js + React + Tailwind CSS | 1リポジトリでProtocol WebとMerchant Demoを別アプリとして持ち、同一スタックで速度優先 |
 | 認証/ウォレット | Privy | Web3非専門ユーザーのオンボーディングを最短化 |
-| チェーン接続 | `viem` + `tempo.ts` | TempoのTIP-20/DEX Actionsを扱いやすい |
+| チェーン接続 | `viem`（`viem/tempo`） | TempoのTIP-20/DEX Actions（DEX等）を扱うため |
 | バックエンド | Next.js Route Handlers | Protocol WebにMerchant API/Public APIを同居させて実装量を削減 |
 | DB | SQLite（Prisma） | デモ要件の永続化（invoice/merchant/idempotency）に十分 |
 | コントラクト | Solidity + Foundry | Tempo EVM上で実装しやすい |
-| Keeper | Node.js（`tempo.ts/viem`） | flip order運用をスクリプト/cronで実装可能 |
+| Keeper | Node.js（`viem/tempo` Actions） | flip order運用をスクリプト/cronで実装可能 |
 
 ## ドメイン分割（責務）
 
@@ -99,32 +99,27 @@ export type SettlementType = "repaid" | "liquidated";
 export interface Merchant {
   id: string; // UUID
   name: string;
-  payoutAddress: `0x${string}`; // Tempo EVM address
-  apiKeyHash: string; // APIキーのハッシュ
+  walletAddress: `0x${string}`; // Tempo EVM address
+  apiKeyHash: string; // APIキーのsha256ハッシュ（平文は保存しない）
   createdAt: Date;
   updatedAt: Date;
 }
 
 export interface Invoice {
-  invoiceId: string; // UUID
-  correlationId: `0x${string}`; // bytes32 hex
+  id: string; // UUID (= invoiceId)
   merchantId: string; // FK
-  price: string; // AlphaUSD, decimals=6 (文字列で保持)
-  dueTimestamp: number; // unix seconds
+  correlationId: `0x${string}`; // bytes32 hex (= loanId)
 
-  merchantFee: string; // price*3%
-  merchantPayout: string; // price-merchantFee
+  // Amounts are stored as base units strings (AlphaUSD decimals=6).
+  priceBaseUnits: string;
+  merchantFeeBaseUnits: string;
+  merchantPayoutBaseUnits: string;
 
-  status: InvoiceStatus;
-  settlementType?: SettlementType; // status=paid のときのみ
+  dueTimestamp: bigint; // unix seconds
+  description?: string | null;
 
-  // Onchain references
-  loanTxHash?: `0x${string}`;
-  merchantPayoutTxHash?: `0x${string}`;
-
-  // Signature for onchain verification (EIP-712)
-  invoiceDataJson: string;
-  invoiceSignature: `0x${string}`;
+  // EIP-712 signature for onchain verification (InvoiceData).
+  signature: `0x${string}`;
 
   createdAt: Date;
   updatedAt: Date;
@@ -160,15 +155,15 @@ enum SettlementType {
 }
 
 struct Loan {
-  bytes32 id; // correlationId (= loanId)
   address borrower;
   address merchant;
 
   uint256 principal; // price, decimals=6
-  uint256 merchantFee; // principal*3%
-  uint256 merchantPayout; // principal-merchantFee
-  uint256 principalOutstanding;
-  uint256 feesOutstanding; // MVPではopen中は0（liquidate時に一括計算して回収する）
+  uint256 amountDueOutstanding;
+  uint64 dueTimestamp;
+
+  LoanState state;
+  SettlementType settlementType; // state=Closed のときのみ
 
   uint256 collateralDeposit;
   uint256 reservedCollateral;
@@ -178,25 +173,22 @@ struct Loan {
   // Strategy Pool accounting (realized profit only; MasterChef style)
   uint256 strategyShares; // 参加shares（MVP: 1 share = 1 AlphaUSD delegated）
   uint256 rewardDebt; // 既に消費/返却済みの利益（accProfitPerShare基準）
+  uint256 profitCredit; // accrued profit retained even after shares decrease (MVP correctness)
 
-  uint64 dueTimestamp;
-  uint64 openedAt;
-
-  bool lateFeeCharged;
-  LoanState state;
-  SettlementType settlementType; // state=Closed のときのみ
+  uint256 merchantFee; // principal*3%
+  uint256 merchantPayout; // principal-merchantFee
 }
 ```
 
 **主要イベント（MVP）**:
-- `LoanOpened(bytes32 loanId, address borrower, address merchant, uint256 principal, uint256 merchantFee, uint256 merchantPayout, uint256 collateralDeposit, uint64 dueTimestamp)`
-- `StrategyDelegated(bytes32 loanId, uint256 amount)`
-- `Repaid(bytes32 loanId, address payer, uint256 repayTargetAmount, uint256 discountApplied, uint256 borrowerPayAmount)`
-- `StrategyProfitHarvested(uint256 profit, uint256 accProfitPerShare)`
-- `StrategyPrincipalReturned(bytes32 loanId, uint256 amount)`
-- `Liquidated(bytes32 loanId, uint256 amountRecoveredToPool)`
-- `CollateralReturned(bytes32 loanId, address borrower, uint256 amount)`
-- `DiscountRefunded(bytes32 loanId, address borrower, uint256 amount)`
+- `LoanOpened(bytes32 loanId, address borrower, address merchant, uint256 principal, uint256 merchantFee, uint256 merchantPayout, uint64 dueTimestamp, uint256 collateralDeposit, uint256 reservedCollateral, uint256 investableCollateral)`
+- `Repaid(bytes32 loanId, address borrower, uint256 repayTargetAmount, uint256 discountApplied, uint256 borrowerPayAmount, uint256 amountDueOutstandingAfter, bool closed)`
+- `Delegated(bytes32 loanId, uint256 amount, address strategyWallet)`
+- `Harvested(uint256 profitAmount, uint256 accProfitPerShare)`
+- `PrincipalReturned(bytes32 loanId, uint256 amount)`
+- `Liquidated(bytes32 loanId, uint256 principalRecovered, uint256 feesCharged, uint256 totalRecovered)`
+- `CollateralReturned(bytes32 loanId, address borrower, uint256 amount)`（CollateralVault）
+- `PaidToPool(address pool, uint256 amount)` / `RefundedToBorrower(address borrower, uint256 amount)`（DiscountVault）
 
 ### ER図（Offchain）
 
@@ -204,25 +196,28 @@ struct Loan {
 erDiagram
   MERCHANT ||--o{ INVOICE : creates
   MERCHANT ||--o{ IDEMPOTENCY_KEY : uses
-  INVOICE ||--o| IDEMPOTENCY_KEY : maps
+  INVOICE ||--o{ IDEMPOTENCY_KEY : maps
 
   MERCHANT {
     string id PK
     string name
-    string payoutAddress
+    string walletAddress
     string apiKeyHash
     datetime createdAt
+    datetime updatedAt
   }
   INVOICE {
-    string invoiceId PK
+    string id PK
     string correlationId
     string merchantId FK
-    string price
-    int dueTimestamp
-    string status
-    string settlementType
-    string loanTxHash
+    string priceBaseUnits
+    bigint dueTimestamp
+    string description
+    string signature
+    string merchantFeeBaseUnits
+    string merchantPayoutBaseUnits
     datetime createdAt
+    datetime updatedAt
   }
   IDEMPOTENCY_KEY {
     string id PK
@@ -406,10 +401,10 @@ sequenceDiagram
   participant CV as CollateralVault
   participant Strat as Strategy Wallet
 
-  Op->>Loan: delegateInvestableToStrategy(loanId)
-  Loan->>CV: release investableCollateral (>= MIN_DEX_ORDER only)
-  CV->>Strat: transfer AlphaUSD (investableCollateral)
-  Loan-->>Op: emit StrategyDelegated(loanId, amount)
+	  Op->>Loan: delegateInvestableToStrategy(loanId)
+	  Loan->>CV: release investableCollateral (>= MIN_DEX_ORDER only)
+	  CV->>Strat: transfer AlphaUSD (investableCollateral)
+	  Loan-->>Op: emit Delegated(loanId, amount, strategyWallet)
 ```
 
 ### 3) Consumer: 部分返済（discount適用）
@@ -423,11 +418,11 @@ sequenceDiagram
   participant Pool as LendingPool
 
   C->>Web: input repayTargetAmount
-  C->>Loan: repay(loanId, repayTargetAmount)
-  Loan->>Loan: compute pendingProfit (strategyShares/accProfitPerShare)
-  Loan->>DV: payToPool(discountApplied)
-  Loan->>Pool: transferFrom borrowerPayAmount
-  Loan-->>Web: state updated (principalOutstanding/feesOutstanding)
+	  C->>Loan: repay(loanId, repayTargetAmount)
+	  Loan->>Loan: compute pendingProfit (strategyShares/accProfitPerShare)
+	  Loan->>DV: payToPool(discountApplied)
+	  Loan->>Pool: transferFrom borrowerPayAmount
+	  Loan-->>Web: state updated (amountDueOutstanding)
 ```
 
 ### 4) Operator: `harvestProfit`（実現利益の回収と分配更新）
@@ -440,14 +435,14 @@ sequenceDiagram
   participant Loan as LoanManager
   participant DV as DiscountVault
 
-  Op->>Keeper: unwind positions + get AlphaUSD balance
-  Keeper->>Dex: cancel/close + swap back to AlphaUSD
-  Keeper->>Keeper: (once) approve AlphaUSD to LoanManager/DiscountVault
-  Keeper-->>Op: choose profitAmount
-  Op->>Loan: harvestProfit(profitAmount)
-  Loan->>Loan: transferFrom(strategyWallet, profitAmount)
-  Loan->>DV: store profit (protocol-owned)
-  Loan-->>Op: emit StrategyProfitHarvested
+	  Op->>Keeper: unwind positions + get AlphaUSD balance
+	  Keeper->>Dex: cancel/close + swap back to AlphaUSD
+	  Keeper->>Keeper: (once) approve AlphaUSD to LoanManager
+	  Keeper-->>Op: choose profitAmount
+	  Op->>Loan: harvestProfit(profitAmount)
+	  Loan->>Loan: transferFrom(strategyWallet, profitAmount)
+	  Loan->>DV: store profit (protocol-owned)
+	  Loan-->>Op: emit Harvested(profitAmount, accProfitPerShare)
 ```
 
 ### 4.1) Operator: `returnStrategyPrincipal`（運用元本の返却）
@@ -459,10 +454,10 @@ sequenceDiagram
   participant CV as CollateralVault
   participant Strat as Strategy Wallet
 
-  Op->>Loan: returnStrategyPrincipal(loanId, amount)
-  Loan->>Loan: transferFrom(strategyWallet, amount)
-  Loan->>CV: credit principalRecovered (loan collateral)
-  Loan-->>Op: emit StrategyPrincipalReturned(loanId, amount)
+	  Op->>Loan: returnStrategyPrincipal(loanId, amount)
+	  Loan->>Loan: transferFrom(strategyWallet, amount)
+	  Loan->>CV: credit principalRecovered (loan collateral)
+	  Loan-->>Op: emit PrincipalReturned(loanId, amount)
 ```
 
 ### 5) Operator: 清算（延滞）
@@ -479,11 +474,11 @@ sequenceDiagram
   Op->>Keeper: unwind positions (if any)
   Keeper->>Dex: cancel/close + swap back to AlphaUSD
   Op->>Loan: harvestProfit(profitAmount) (optional)
-  Op->>Loan: returnStrategyPrincipal(loanId, amount) (optional)
-  Op->>Loan: liquidate(loanId)
-  Loan->>CV: seize collateral up to amountDueOutstanding
-  CV->>Pool: transfer AlphaUSD
-  Loan-->>Op: emit Liquidated + mark Closed(liquidated)
+	  Op->>Loan: returnStrategyPrincipal(loanId, amount) (optional)
+	  Op->>Loan: liquidate(loanId)
+	  Loan->>CV: seize collateral up to (amountDueOutstanding + feesToCharge)
+	  CV->>Pool: transfer AlphaUSD
+	  Loan-->>Op: emit Liquidated + mark Closed(liquidated)
 ```
 
 ## 画面遷移（MVP）
@@ -567,8 +562,6 @@ stateDiagram-v2
   "invoiceId": "uuid",
   "correlationId": "0x...",
   "checkoutUrl": "https://.../checkout/0x...",
-  "price": "1000.00",
-  "principal": "1000.00",
   "merchantFee": "30.00",
   "merchantPayout": "970.00",
   "dueTimestamp": 1700000000
@@ -587,17 +580,15 @@ stateDiagram-v2
 {
   "invoiceId": "uuid",
   "correlationId": "0x...",
+  "price": "1000",
+  "dueTimestamp": 1700000000,
   "status": "loan_opened",
   "settlementType": null,
-  "amountDueOutstanding": "1000.00",
-  "principalOutstanding": "1000.00",
-  "feesOutstanding": "0.00",
-  "dueTimestamp": 1700000000,
-  "merchantPayoutTxHash": "0x..."
+  "amountDueOutstanding": "1000"
 }
 ```
 
-注: `merchantPayoutTxHash` は `openLoan` のトランザクションハッシュ（同一tx内でPool->Merchant送金が発生するため、別txのhashは存在しない）。
+注: txHashはCheckout UI（Borrower）とKeeperログ（Operator）で追跡する（Merchant APIはMVPでは保持しない）。
 
 #### GET /api/merchant/invoices/by-correlation/:correlationId
 
@@ -610,20 +601,15 @@ stateDiagram-v2
 **Response（例）**:
 ```json
 {
+  "invoiceId": "uuid",
   "correlationId": "0x...",
-  "merchant": {
-    "name": "Demo Store",
-    "payoutAddress": "0x..."
-  },
-  "price": "1000.00",
-  "dueTimestamp": 1700000000,
   "invoiceData": {
     "correlationId": "0x...",
     "merchant": "0x...",
     "price": "1000000000",
     "dueTimestamp": "1700000000"
   },
-  "invoiceSignature": "0x..."
+  "signature": "0x..."
 }
 ```
 
@@ -730,13 +716,14 @@ function refundToBorrower(address borrower, uint256 amount) external;
 
 - MVPでは「延滞中の任意返済」はデモ対象外のため、`block.timestamp > dueTimestamp + GRACE_PERIOD` の場合は `repay` をrevertし、`liquidate` のみでクローズする
 - Strategy Poolの実現利益は `accProfitPerShare` により按分され、ローンごとの `discountCredits`（=利用可能discount原資）は以下で算出する（下限0）
-  - `pendingProfit = strategyShares * accProfitPerShare / ACC_PRECISION - rewardDebt`
-  - `discountCredits = pendingProfit`（MVPでは同義。別途のcredit残高は持たない）
+  - `pendingFromShares = max(0, strategyShares * accProfitPerShare / ACC_PRECISION - rewardDebt)`
+  - `pendingProfit = profitCredit + pendingFromShares`
+  - `discountCredits = pendingProfit`
+  - 実装では `_accrueProfit()` が `pendingFromShares` を `profitCredit` に加算し、`rewardDebt` を更新して整合を保つ（shares減少後も既に発生した利益が消えない）
 - `discountApplied = min(discountCredits, repayTargetAmount)`
 - `borrowerPayAmount = repayTargetAmount - discountApplied`
-- 充当順序: `feesOutstanding -> principalOutstanding`
 - `discountApplied > 0` の場合:
-  - `rewardDebt += discountApplied`（使った分だけ利益を消費済みにする）
+  - `profitCredit -= discountApplied`（使った分だけdiscount原資を消費する）
   - DiscountVaultからPoolへ `discountApplied` を送金する
 - `amountDueOutstanding == 0` になった場合:
   - `strategyPrincipalOutstanding == 0` を要求（運用元本が戻っていない場合はcloseできない。MVP簡略）
@@ -752,7 +739,7 @@ function refundToBorrower(address borrower, uint256 amount) external;
 - `block.timestamp > lateStart` の場合:
   - `daysLate = floor((block.timestamp - lateStart) / 1 days) + 1`
   - `lateFeeCandidate = 5 USD`
-  - `penaltyCandidate = principalOutstanding * 0.10%/day * daysLate`（simple）
+  - `penaltyCandidate = amountDueOutstanding * 0.10%/day * daysLate`（simple）
   - `feesToCharge = min(lateFeeCandidate + penaltyCandidate, principal * 10%)`（cap、late fee含む）
 - ハッカソンMVPでは「延滞中の部分返済」フローはデモ対象外とし、penaltyは清算時の回収に寄せる
 
@@ -771,7 +758,7 @@ function refundToBorrower(address borrower, uint256 amount) external;
   - `transferFrom(strategyWallet, amount)` で CollateralVaultへ返却
   - `strategyPrincipalOutstanding -= amount`
   - `strategyShares -= amount`、`strategyTotalShares -= amount`（MVP: 1 share = 1 AlphaUSD）
-  - `rewardDebt -= amount * accProfitPerShare / ACC_PRECISION`（shares減少に伴う調整）
+  - `_accrueProfit()` の後に `rewardDebt = strategyShares * accProfitPerShare / ACC_PRECISION` に更新する
 
 ### 5) 清算（`liquidate`）
 
@@ -780,7 +767,7 @@ function refundToBorrower(address borrower, uint256 amount) external;
   - （任意）事前に `returnStrategyPrincipal` で運用元本をCollateralVaultへ戻す
   - （任意）事前に `harvestProfit` で実現利益をDiscountVaultへ回収する
   - `feesToCharge` を計算（前述、cap適用）
-  - `totalToRecover = principalOutstanding + feesToCharge`
+  - `totalToRecover = amountDueOutstanding + feesToCharge`
   - CollateralVaultから `totalToRecover` をPoolへ送金して回収
   - `state=Closed`、`settlementType=Liquidated`
   - 余剰担保があればBorrowerへ返却（清算時は「残額のみ返る」）

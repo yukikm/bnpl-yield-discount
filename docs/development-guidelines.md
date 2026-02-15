@@ -74,7 +74,7 @@
 
 ## DB（Prisma / SQLite）
 
-- `DATABASE_URL="file:./.data/app.db"` を前提にするため、起動/マイグレーションは **repo root を WorkingDirectory** にする
+- PrismaはSQLite `file:` パスを `prisma/schema.prisma` からの相対で解決するため、repo root の `.data/app.db` を使う場合は `DATABASE_URL="file:../.data/app.db"` を前提にする
 - Prismaの migration/seed は原則 repo root で実行する
 - Keeperのロック/状態保存はDBに寄せる（多重起動対策）
 
