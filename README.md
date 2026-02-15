@@ -30,7 +30,7 @@ In one sentence: **"Over-collateralized BNPL + realized-yield-to-discount on Tem
 
 ## Tech Stack
 
-- **Onchain**: Solidity contracts (Foundry) on Tempo EVM + Tempo native stablecoin DEX
+- **Onchain**: Solidity contracts (Foundry) on Tempo + Tempo native stablecoin DEX
 - **Offchain**: Next.js (Protocol Web + Merchant Demo), TypeScript, Tailwind CSS
 - **Auth/Wallet UX**: Privy (email/phone login + embedded wallet)
 - **Chain integration**: `viem` + `viem/tempo` Actions (DEX + faucet)
@@ -50,7 +50,7 @@ docs/                  # PRD/design/architecture (spec source of truth)
 .steering/             # Work-unit steering docs (YYYYMMDD-*)
 ```
 
-## Details (For Judges)
+## Details
 
 ### Problem and Approach
 
