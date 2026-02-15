@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
       const invoiceSignerPk = requireEnv("INVOICE_SIGNER_PRIVATE_KEY") as `0x${string}`;
       const loanManagerAddress = requireEnv("LOAN_MANAGER_ADDRESS") as `0x${string}`;
-      const chainId = Number(process.env.TEMPO_CHAIN_ID ?? 42431);
+      const chainId = Number(process.env.TEMPO_CHAIN_ID || 42431);
 
       const account = privateKeyToAccount(invoiceSignerPk);
       const eip712 = buildInvoiceEip712({

@@ -50,11 +50,11 @@ function isBytes32Hex(v: string): v is `0x${string}` {
 }
 
 function getConfig() {
-  const rpcUrl = process.env.TEMPO_RPC_URL ?? "https://rpc.moderato.tempo.xyz";
-  const alphaUsdAddress = (process.env.ALPHA_USD_ADDRESS ??
-    ALPHA_USD_ADDRESS) as `0x${string}`;
-  const pathUsdAddress = (process.env.PATH_USD_ADDRESS ??
-    PATH_USD_ADDRESS) as `0x${string}`;
+  const rpcUrl = process.env.TEMPO_RPC_URL || "https://rpc.moderato.tempo.xyz";
+  const alphaUsdAddress = (process.env.ALPHA_USD_ADDRESS || ALPHA_USD_ADDRESS) as
+    `0x${string}`;
+  const pathUsdAddress = (process.env.PATH_USD_ADDRESS || PATH_USD_ADDRESS) as
+    `0x${string}`;
 
   const chain = tempoModerato.extend({ feeToken: alphaUsdAddress });
 

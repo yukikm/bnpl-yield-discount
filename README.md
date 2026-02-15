@@ -1,5 +1,81 @@
 # YieldDiscount BNPL (Tempo Hackathon MVP)
 
+## Judge-Facing Summary
+
+YieldDiscount BNPL is a pay-later checkout where the borrower locks stablecoin collateral and the protocol pays the merchant upfront from a lending pool. A portion of the collateral can be delegated to a strategy wallet and traded on Tempo's native stablecoin DEX. Only realized profit is harvested and applied as a discount on the borrower's repayment amount.
+
+In one sentence: **"Over-collateralized BNPL + realized-yield-to-discount on Tempo."**
+
+### Problem and Approach
+
+BNPL is typically underwritten offchain, which adds credit risk and operational overhead. This MVP explores a different primitive: **fully onchain, over-collateralized BNPL** where the protocol can generate yield from a bounded, opt-in slice of collateral and share it back to the consumer as a **repayment discount**.
+
+### Why This Matters
+
+- **Consumer UX**: "0% interest" within the due window, with the possibility of a discount from realized yield.
+- **Merchant UX**: instant payout at checkout (borrower does not transfer directly to the merchant).
+- **Protocol UX**: conservative by construction (only investable collateral is delegated; reserved collateral stays in the vault).
+- **Tempo-native**: uses TIP-20 stablecoins and Tempo-native DEX actions via `viem/tempo`.
+
+### What Works in the MVP
+
+- Merchant API + SDK: create invoice with idempotency, get a checkout URL, fetch status by `invoiceId` or `correlationId`.
+- Checkout (Privy): login, approve AlphaUSD, `openLoan`, view loan state, `repay` with discount preview.
+- Keeper CLI (operator): `delegateInvestableToStrategy`, DEX flip order + unwind (best-effort), `harvestProfit`, `returnStrategyPrincipal`, `liquidate`.
+
+### Key Technical Details (What to Look For)
+
+- **Tamper-resistant invoices**: Merchant API signs `InvoiceData` via **EIP-712**; Checkout submits `(invoiceData, signature)` to `LoanManager.openLoan`, preventing client-side price/merchant/due tampering.
+- **Clean accounting separation**:
+  - `LendingPool`: share-based deposits/withdrawals, `totalAssets = cash + receivables`.
+  - `LoanManager`: BNPL ledger (`openLoan/repay/liquidate`) + receivables + profit accounting.
+  - `CollateralVault`: holds borrower collateral; only the investable slice can be released to the strategy wallet.
+  - `DiscountVault`: holds harvested realized profit and pays discounts back to the pool.
+- **Realized-yield-only discount**: discounts are funded only by `harvestProfit(profitAmount)` transfers into `DiscountVault` (no mark-to-market).
+- **Strategy pool accounting**: profits are distributed via `accProfitPerShare`/`rewardDebt` with a `profitCredit` buffer to preserve already-accrued profit across share decreases.
+- **Tempo-native integration**: Keeper uses `viem/tempo` Actions (`Actions.dex.*`, `Actions.faucet.*`) against Tempo's stablecoin DEX and faucet RPC.
+
+### MVP Scope Notes
+
+- This is a hackathon MVP: the strategy is **best-effort** and run manually via Keeper CLI (no autonomous bot loop, no risk/oracle layer).
+- Security/risk controls are intentionally minimal for demo velocity (single operator role, no advanced monitoring).
+
+### End-to-End Flow (High Level)
+
+```mermaid
+flowchart TB
+  subgraph Offchain
+    M[Merchant Demo] -->|SDK| API["Protocol Web: Merchant API"]
+    C["Consumer (Privy)"] --> UI["Protocol Web: Checkout UI"]
+    K[Keeper CLI] --> RPC[Tempo RPC]
+    API --> DB[(SQLite / Prisma)]
+  end
+
+  subgraph Onchain["Tempo Moderato (EVM + Native DEX)"]
+    Pool[LendingPool]
+    Loan[LoanManager]
+    CV[CollateralVault]
+    DV[DiscountVault]
+    Dex[Native Stablecoin DEX]
+    Tip20[TIP-20 AlphaUSD/pathUSD]
+  end
+
+  API -->|EIP-712 invoice signature| UI
+  UI -->|openLoan| Loan
+  Loan -->|payMerchant| Pool
+  Loan --> CV
+  K -->|delegate/harvest/return| Loan
+  CV -->|release investable| K
+  K -->|placeFlip/unwind| Dex
+  K -->|realized profit| DV
+  Tip20 --- Pool
+  Tip20 --- CV
+  Tip20 --- DV
+  Tip20 --- Dex
+```
+
+---
+
 This repository contains a single monorepo for:
 
 - Protocol Web (Next.js UI + API)
@@ -19,12 +95,19 @@ This repository contains a single monorepo for:
 ```bash
 pnpm install
 cp .env.example .env
+
+# If you keep a single .env at repo root, export it into your shell so workspace apps can read it:
+set -a
+source .env
+set +a
+
 mkdir -p .data
 pnpm db:migrate:dev
 pnpm db:seed
 ```
 
 Notes:
+
 - Prisma resolves SQLite `file:` paths relative to `prisma/schema.prisma`, so the default is
   `DATABASE_URL=file:../.data/app.db` (DB file ends up at repo root `.data/app.db`).
 
@@ -61,6 +144,7 @@ forge script script/Deploy.s.sol:Deploy \
 ```
 
 Then copy the printed addresses into `.env`:
+
 - `LENDING_POOL_ADDRESS`
 - `COLLATERAL_VAULT_ADDRESS`
 - `DISCOUNT_VAULT_ADDRESS`
@@ -146,6 +230,7 @@ This is the runbook that matches the steering docs (`price=1000`, `collateralDep
    - Confirm discount is applied (`borrowerPayAmount = repayTargetAmount - discountApplied`).
 
 Optional: verify Merchant API status (Bearer auth):
+
 ```bash
 curl -sS \
   -H "Authorization: Bearer $DEMO_MERCHANT_API_KEY" \

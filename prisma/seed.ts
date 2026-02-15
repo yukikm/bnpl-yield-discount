@@ -14,7 +14,7 @@ async function main() {
   }
 
   const walletAddress =
-    process.env.DEMO_MERCHANT_WALLET_ADDRESS ??
+    process.env.DEMO_MERCHANT_WALLET_ADDRESS ||
     // Tempo community wallet (from hackathon cheatsheet). Override via env for real demos.
     "0x031891A61200FedDd622EbACC10734BC90093B2A";
 

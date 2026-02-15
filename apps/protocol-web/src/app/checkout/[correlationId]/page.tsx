@@ -14,10 +14,10 @@ export default async function CheckoutPage({
     | undefined;
   const alphaUsdAddress = (process.env.ALPHA_USD_ADDRESS as
     | `0x${string}`
-    | undefined) ?? ALPHA_USD_ADDRESS;
+    | undefined) || ALPHA_USD_ADDRESS;
   const pathUsdAddress = (process.env.PATH_USD_ADDRESS as
     | `0x${string}`
-    | undefined) ?? PATH_USD_ADDRESS;
+    | undefined) || PATH_USD_ADDRESS;
 
   if (!loanManagerAddress) {
     return (
@@ -39,4 +39,3 @@ export default async function CheckoutPage({
     />
   );
 }
-

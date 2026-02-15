@@ -5,7 +5,7 @@ import { tempoModerato } from "viem/chains";
 import { requireEnv } from "./env";
 
 export function getTempoPublicClient() {
-  const rpcUrl = process.env.TEMPO_RPC_URL ?? "https://rpc.moderato.tempo.xyz";
+  const rpcUrl = process.env.TEMPO_RPC_URL || "https://rpc.moderato.tempo.xyz";
   return createPublicClient({
     chain: tempoModerato,
     transport: http(rpcUrl),
