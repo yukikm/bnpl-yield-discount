@@ -116,7 +116,7 @@ flowchart TB
   CV -->|release investable| K
   K -->|placeFlip/unwind| Dex
   Loan -->|harvested profit| DV
-  DV -->|payToPool (discount)| Pool
+  DV -->|"payToPool (discount)"| Pool
   Tip20 --- Pool
   Tip20 --- CV
   Tip20 --- DV
