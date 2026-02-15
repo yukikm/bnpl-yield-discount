@@ -1,26 +1,74 @@
 # YieldDiscount BNPL (Tempo Hackathon MVP)
 
-## Judge-Facing Summary
+## Project Overview
 
-YieldDiscount BNPL is a pay-later checkout where the borrower locks stablecoin collateral and the protocol pays the merchant upfront from a lending pool. A portion of the collateral can be delegated to a strategy wallet and traded on Tempo's native stablecoin DEX. Only realized profit is harvested and applied as a discount on the borrower's repayment amount.
+YieldDiscount BNPL is an **over-collateralized, onchain BNPL checkout** on Tempo. Borrowers lock TIP-20 stablecoin collateral, the protocol pays merchants upfront from a lending pool, and lenders earn fees from BNPL volume. A bounded, opt-in slice of collateral can be delegated to a strategy wallet and traded on Tempo's native stablecoin DEX; only **realized** profit is harvested and used to discount the borrower's repayment (no mark-to-market).
 
 In one sentence: **"Over-collateralized BNPL + realized-yield-to-discount on Tempo."**
 
+### Roles
+
+- **Merchant**: creates an invoice (SDK/API), redirects the user to a hosted checkout, gets paid instantly.
+- **Consumer (Borrower)**: logs in (Privy), deposits collateral, opens a loan, repays with an auto-applied discount if realized profit exists.
+- **Lender**: deposits TIP-20 stablecoins into the lending pool, can withdraw (if cash is available), earns merchant/late fees.
+- **Operator/Keeper**: runs best-effort strategy ops (delegate, DEX flip/unwind, harvest profit, return principal, liquidate).
+
+### User Stories (MVP)
+
+- As a **merchant**, I can create a tamper-resistant invoice via API/SDK and send my customer to a BNPL checkout in a Stripe-like integration flow.
+- As a **consumer**, I can log in with email/phone, deposit collateral, and buy now while possibly paying less later via realized-yield discount.
+- As a **lender**, I can supply liquidity to fund merchant payouts and earn protocol fees without relying on offchain credit underwriting.
+- As an **operator**, I can safely start/stop strategy execution and enforce liquidation when loans are overdue.
+
+### MVP Parameters (Hackathon Defaults)
+
+- **Fees**: merchant fee is `3.0%` (merchant payout is `price - merchantFee`), consumer interest is `0%` within the due window.
+- **Collateral**: minimum reserved collateral is `125%` of principal; up to `50%` of deposit can be delegated (bounded by `deposit - reserved`).
+- **Discount**: funded only by harvested, realized profit (`>= 0`) and capped by what the borrower owes.
+- **Terms**: default due is `14 days` with a `3 day` grace period; late fee `$5` + `0.10%/day` penalty (capped at `10%` of principal).
+- **Network/Tokens**: Tempo Testnet (Moderato, `chainId=42431`), TIP-20 `AlphaUSD` / `pathUSD` (decimals=6).
+
+## Tech Stack
+
+- **Onchain**: Solidity contracts (Foundry) on Tempo EVM + Tempo native stablecoin DEX
+- **Offchain**: Next.js (Protocol Web + Merchant Demo), TypeScript, Tailwind CSS
+- **Auth/Wallet UX**: Privy (email/phone login + embedded wallet)
+- **Chain integration**: `viem` + `viem/tempo` Actions (DEX + faucet)
+- **DB**: SQLite + Prisma (invoices, idempotency keys, keeper state)
+
+## Repository Layout
+
+```text
+apps/protocol-web/     # Protocol Web: Checkout UI + Operator UI + Merchant API (Next.js)
+apps/merchant-demo/    # Merchant-side demo app showing SDK integration (Next.js)
+apps/keeper/           # Keeper CLI/bot for strategy ops (Node.js/TS)
+contracts/             # Solidity contracts (Foundry)
+packages/merchant-sdk/ # Merchant TypeScript SDK (server-only, thin wrapper)
+packages/shared/       # Shared types/constants/ABIs across apps
+prisma/                # Prisma schema/migrations/seed (SQLite)
+docs/                  # PRD/design/architecture (spec source of truth)
+.steering/             # Work-unit steering docs (YYYYMMDD-*)
+```
+
+## Details (For Judges)
+
 ### Problem and Approach
 
-BNPL is typically underwritten offchain, which adds credit risk and operational overhead. This MVP explores a different primitive: **fully onchain, over-collateralized BNPL** where the protocol can generate yield from a bounded, opt-in slice of collateral and share it back to the consumer as a **repayment discount**.
+BNPL is typically underwritten offchain, which adds credit risk and operational overhead. This MVP explores a different primitive: **fully onchain, over-collateralized BNPL** funded by lender liquidity, where the protocol can generate yield from a bounded, opt-in slice of borrower collateral and share it back to the consumer as a **repayment discount**.
 
 ### Why This Matters
 
 - **Consumer UX**: "0% interest" within the due window, with the possibility of a discount from realized yield.
 - **Merchant UX**: instant payout at checkout (borrower does not transfer directly to the merchant).
-- **Protocol UX**: conservative by construction (only investable collateral is delegated; reserved collateral stays in the vault).
+- **Lender UX**: earn fees from BNPL volume while staying over-collateralized by construction.
+- **Protocol UX**: conservative by design (only investable collateral is delegated; reserved collateral stays in the vault).
 - **Tempo-native**: uses TIP-20 stablecoins and Tempo-native DEX actions via `viem/tempo`.
 
 ### What Works in the MVP
 
 - Merchant API + SDK: create invoice with idempotency, get a checkout URL, fetch status by `invoiceId` or `correlationId`.
 - Checkout (Privy): login, approve AlphaUSD, `openLoan`, view loan state, `repay` with discount preview.
+- Lending Pool: deposit/withdraw (shares), merchant payout funding, fee accrual via `totalAssets = cash + receivables`.
 - Keeper CLI (operator): `delegateInvestableToStrategy`, DEX flip order + unwind (best-effort), `harvestProfit`, `returnStrategyPrincipal`, `liquidate`.
 
 ### Key Technical Details (What to Look For)
@@ -37,7 +85,7 @@ BNPL is typically underwritten offchain, which adds credit risk and operational 
 
 ### MVP Scope Notes
 
-- This is a hackathon MVP: the strategy is **best-effort** and run manually via Keeper CLI (no autonomous bot loop, no risk/oracle layer).
+- This is a hackathon MVP: the strategy is **best-effort** and run via Keeper CLI (no autonomous bot loop, no risk/oracle layer).
 - Security/risk controls are intentionally minimal for demo velocity (single operator role, no advanced monitoring).
 
 ### End-to-End Flow (High Level)
@@ -74,16 +122,6 @@ flowchart TB
   Tip20 --- DV
   Tip20 --- Dex
 ```
-
----
-
-This repository contains a single monorepo for:
-
-- Protocol Web (Next.js UI + API)
-- Merchant Demo (Next.js)
-- Keeper (Node.js / TS)
-- Contracts (Solidity / Foundry)
-- DB (SQLite / Prisma)
 
 ## Prerequisites
 
